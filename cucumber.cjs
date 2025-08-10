@@ -29,7 +29,7 @@ module.exports = {
     format: [
       "@cucumber/pretty-formatter",
       "json:results/cucumber-report.json",
-      "@shelex/cucumber-allure"
+      "allure-cucumberjs/reporter" 
     ],
 
     publishQuiet: true,
