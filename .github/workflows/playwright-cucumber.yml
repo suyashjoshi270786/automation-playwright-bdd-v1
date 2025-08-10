@@ -1,0 +1,50 @@
+name: Playwright + Cucumber BDD (with Allure)
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ "*" ]           # PRs from any branch
+  schedule:
+    - cron: "30 3 * * *"        # Daily at 03:30 UTC (09:00 IST)
+  workflow_dispatch: {}          # Allow manual runs from the Actions tab
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+
+      # cucumber.cjs already wires ts-node + dotenv + formatters
+      - name: Run Cucumber Tests
+        run: npx cucumber-js
+
+      # Generate Allure HTML from allure-results (created by @shelex/cucumber-allure)
+      - name: Generate Allure Report
+        if: ${{ hashFiles('allure-results/**') != '' }}
+        run: npx allure generate --clean allure-results --output results/allure-report
+
+      - name: Upload Artifacts (reports, traces, screenshots)
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts
+          path: |
+            results/**
+            allure-results/**
+            test-results/**
+            playwright-report/**
+          if-no-files-found: ignore

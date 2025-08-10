@@ -28,7 +28,8 @@ module.exports = {
     // Pretty console + JSON for external reporters
     format: [
       "@cucumber/pretty-formatter",
-      "json:results/cucumber-report.json"
+      "json:results/cucumber-report.json",
+      "@shelex/cucumber-allure"
     ],
 
     publishQuiet: true,
