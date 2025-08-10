@@ -2,7 +2,7 @@ name: Playwright + Cucumber BDD (with Allure)
 
 on:
   push:
-    branches: [ main ]            # avoid duplicate runs with PRs
+    branches: [ main ]
   pull_request:
     branches: [ "*" ]
   schedule:
@@ -39,29 +39,23 @@ jobs:
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
+      - name: Create .env for CI
+        run: |
+          {
+            echo "API_BASE_URL=${{ secrets.API_BASE_URL }}";
+            # Add more if needed:
+            # echo "API_KEY=${{ secrets.API_KEY }}";
+          } > .env
+
       - name: Prepare result dirs
         run: mkdir -p results allure-results
 
-      # ---- Debug block (one run). This will surface the real reason if CI fails early.
-      - name: Debug Cucumber
-        run: |
-          set -e
-          node -v
-          npm -v
-          npx cucumber-js --version
-          echo "== PWD ==" && pwd
-          echo "== List features ==" && ls -R src/features || true
-
-          echo "== Dry run: discover features (no execution) =="
-          npx cucumber-js --config cucumber.cjs --dry-run --format progress --backtrace
-
-          echo "== Real run: verbose output =="
-          npx cucumber-js --config cucumber.cjs --format progress --backtrace
-      # ---- End debug block
+      - name: Run Cucumber Tests
+        run: npx cucumber-js --config cucumber.cjs
 
       - name: Generate Allure Report
         if: always()
-        run: npx allure generate allure-results --clean
+        run: npx allure-commandline generate ./allure-results --clean --output ./allure-report
 
       - name: Upload Allure Results
         if: always()
