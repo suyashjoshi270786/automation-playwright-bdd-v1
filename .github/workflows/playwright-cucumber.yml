@@ -1,0 +1,88 @@
+name: Playwright + Cucumber BDD (with Allure)
+
+on:
+  push:
+    branches: [ main, develop ]   # trigger on pushes to main/develop
+  pull_request:
+    branches: [ "*" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+
+      # Create .env file from GitHub secret
+      - name: Create .env for CI
+        shell: bash
+        run: echo "API_BASE_URL=${{ secrets.API_BASE_URL }}" > .env
+
+      # Verify .env exists and contains a value
+      - name: Verify .env created
+        shell: bash
+        run: |
+          echo ".env exists? $(test -f .env && echo yes || echo no)"
+          echo "bytes in .env: $(wc -c < .env)"
+          head -n1 .env | sed 's/=.*/=<masked>/'
+
+      - name: Prepare result dirs
+        run: mkdir -p results allure-results
+
+      # Run Cucumber tests (pass API_BASE_URL directly too)
+      - name: Run Cucumber Tests
+        env:
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+        run: npx cucumber-js --config cucumber.cjs --format progress --backtrace
+
+      - name: Generate Allure Report
+        if: always()
+        run: npx allure-commandline generate ./allure-results --clean --output ./allure-report
+
+      - name: Upload Allure Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results
+
+      - name: Upload Allure HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: allure-report
+
+      - name: Upload Playwright Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            playwright-report
+            test-results
+            traces
+          if-no-files-found: ignore
