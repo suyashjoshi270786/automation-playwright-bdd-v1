@@ -2,12 +2,9 @@ name: Playwright + Cucumber BDD (with Allure)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]   # trigger on pushes to main/develop
   pull_request:
     branches: [ "*" ]
-  schedule:
-    # 18:30 IST daily (13:00 UTC)
-    - cron: "0 13 * * *"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -39,19 +36,27 @@ jobs:
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
+      # Create .env file from GitHub secret
       - name: Create .env for CI
+        shell: bash
+        run: echo "API_BASE_URL=${{ secrets.API_BASE_URL }}" > .env
+
+      # Verify .env exists and contains a value
+      - name: Verify .env created
+        shell: bash
         run: |
-          {
-            echo "API_BASE_URL=${{ secrets.API_BASE_URL }}";
-            # Add more if needed:
-            # echo "API_KEY=${{ secrets.API_KEY }}";
-          } > .env
+          echo ".env exists? $(test -f .env && echo yes || echo no)"
+          echo "bytes in .env: $(wc -c < .env)"
+          head -n1 .env | sed 's/=.*/=<masked>/'
 
       - name: Prepare result dirs
         run: mkdir -p results allure-results
 
+      # Run Cucumber tests (pass API_BASE_URL directly too)
       - name: Run Cucumber Tests
-        run: npx cucumber-js --config cucumber.cjs
+        env:
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+        run: npx cucumber-js --config cucumber.cjs --format progress --backtrace
 
       - name: Generate Allure Report
         if: always()
