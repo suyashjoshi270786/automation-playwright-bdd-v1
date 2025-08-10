@@ -2,16 +2,26 @@ name: Playwright + Cucumber BDD (with Allure)
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]            # avoid duplicate runs with PRs
   pull_request:
-    branches: [ "*" ]           # PRs from any branch
+    branches: [ "*" ]
   schedule:
-    - cron: "30 3 * * *"        # Daily at 03:30 UTC (09:00 IST)
-  workflow_dispatch: {}          # Allow manual runs from the Actions tab
+    # 18:30 IST daily (13:00 UTC)
+    - cron: "0 13 * * *"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -29,22 +39,51 @@ jobs:
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
-      # cucumber.cjs already wires ts-node + dotenv + formatters
-      - name: Run Cucumber Tests
-        run: npx cucumber-js
+      - name: Prepare result dirs
+        run: mkdir -p results allure-results
 
-      # Generate Allure HTML from allure-results (created by @shelex/cucumber-allure)
+      # ---- Debug block (one run). This will surface the real reason if CI fails early.
+      - name: Debug Cucumber
+        run: |
+          set -e
+          node -v
+          npm -v
+          npx cucumber-js --version
+          echo "== PWD ==" && pwd
+          echo "== List features ==" && ls -R src/features || true
+
+          echo "== Dry run: discover features (no execution) =="
+          npx cucumber-js --config cucumber.cjs --dry-run --format progress --backtrace
+
+          echo "== Real run: verbose output =="
+          npx cucumber-js --config cucumber.cjs --format progress --backtrace
+      # ---- End debug block
+
       - name: Generate Allure Report
-        if: ${{ hashFiles('allure-results/**') != '' }}
-        run: npx allure generate --clean allure-results --output results/allure-report
+        if: always()
+        run: npx allure generate allure-results --clean
 
-      - name: Upload Artifacts (reports, traces, screenshots)
+      - name: Upload Allure Results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-artifacts
+          name: allure-results
+          path: allure-results
+
+      - name: Upload Allure HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: allure-report
+
+      - name: Upload Playwright Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
           path: |
-            results/**
-            allure-results/**
-            test-results/**
-            playwright-report/**
+            playwright-report
+            test-results
+            traces
           if-no-files-found: ignore
