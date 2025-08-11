@@ -1,8 +1,8 @@
-name: Playwright + Cucumber BDD (with Allure)
+name: Playwright + Cucumber BDD (Allure to Pages)
 
 on:
   push:
-    branches: [ main, develop ]   # trigger on pushes to main/develop
+    branches: [ main, develop ]
   pull_request:
     branches: [ "*" ]
 
@@ -10,10 +10,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Permissions: add Pages deploy rights
 permissions:
   contents: read
-  actions: read
-  checks: write
+  pages: write
+  id-token: write
 
 jobs:
   test:
@@ -36,53 +37,54 @@ jobs:
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
-      # Create .env file from GitHub secret
+      # --- ENV: write secrets to .env (add more lines if you have more vars)
       - name: Create .env for CI
-        shell: bash
-        run: echo "API_BASE_URL=${{ secrets.API_BASE_URL }}" > .env
-
-      # Verify .env exists and contains a value
-      - name: Verify .env created
-        shell: bash
         run: |
-          echo ".env exists? $(test -f .env && echo yes || echo no)"
-          echo "bytes in .env: $(wc -c < .env)"
-          head -n1 .env | sed 's/=.*/=<masked>/'
+          echo "API_BASE_URL=${{ secrets.API_BASE_URL }}" > .env
 
       - name: Prepare result dirs
         run: mkdir -p results allure-results
 
-      # Run Cucumber tests (pass API_BASE_URL directly too)
       - name: Run Cucumber Tests
         env:
           API_BASE_URL: ${{ secrets.API_BASE_URL }}
-        run: npx cucumber-js --config cucumber.cjs --format progress --backtrace
+        run: npx cucumber-js --config cucumber.cjs
 
+      # --- Allure (requires devDep: allure-commandline)
       - name: Generate Allure Report
         if: always()
         run: npx allure-commandline generate ./allure-results --clean --output ./allure-report
 
-      - name: Upload Allure Results
+      # Keep artifacts for download/debug
+      - name: Upload Allure Results (JSON)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: allure-results
           path: allure-results
 
-      - name: Upload Allure HTML
+      - name: Upload Allure HTML (artifact)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
           path: allure-report
 
-      - name: Upload Playwright Artifacts
+      # Publish Allure HTML to GitHub Pages
+      - name: Upload Pages artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: playwright-artifacts
-          path: |
-            playwright-report
-            test-results
-            traces
-          if-no-files-found: ignore
+          path: ./allure-report
+
+  deploy:
+    needs: test
+    if: always()   # publish even if tests fail, so you can inspect the report
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
