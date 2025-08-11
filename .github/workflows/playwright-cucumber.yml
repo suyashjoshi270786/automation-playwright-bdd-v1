@@ -2,9 +2,9 @@ name: Playwright + Cucumber BDD (Allure → Pages)
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop ]     # deploy from these
   pull_request:
-    branches: [ "*" ]
+    branches: [ "*" ]               # test only
 
 permissions:
   contents: read
@@ -19,44 +19,57 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      - name: Install deps
+      - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browsers
+      - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
-      # ✅ put your secrets into a .env so dotenv can load them
+      # Put secrets into .env so dotenv loads them (add more lines if needed)
       - name: Create .env for CI
         run: |
           echo "API_BASE_URL=${{ secrets.API_BASE_URL }}" > .env
 
-      # (one-time) quick sanity print; safe/masked
-      - name: Verify .env
-        run: |
-          echo ".env bytes: $(wc -c < .env)"
-          head -n1 .env | sed 's/=.*/=<masked>/'
-
       - name: Prepare result dirs
         run: mkdir -p results allure-results
 
-      # ✅ use --config (not --require); pass env directly too
       - name: Run Cucumber Tests
         env:
           API_BASE_URL: ${{ secrets.API_BASE_URL }}
         run: npx cucumber-js --config cucumber.cjs --format progress --backtrace
 
+      # --- Allure (requires devDep: allure-commandline)
       - name: Generate Allure Report
         if: always()
         run: npx allure-commandline generate ./allure-results --clean --output ./allure-report
 
+      # Keep artifacts for download/debugging
+      - name: Upload Allure Results (JSON)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results
+
+      - name: Upload Allure HTML (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: allure-report
+
+      # Prepare static site for Pages (uploaded even on PRs; deploy happens only on push)
       - name: Configure Pages
         if: always()
         uses: actions/configure-pages@v5
@@ -69,7 +82,8 @@ jobs:
 
   deploy:
     needs: test
-    if: always() # publish even if tests fail so you can inspect the report
+    # ✅ Only deploy on push (skip for pull_request)
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
