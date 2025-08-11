@@ -1,28 +1,31 @@
-name: Playwright + Cucumber BDD (Allure → Pages)
+name: Playwright + Cucumber BDD (with Allure)
 
 on:
   push:
-    branches: [ develop, main ]        # deploy from these
+    branches: [ main, develop ]   # trigger on pushes to main/develop
   pull_request:
-    branches: [ develop, main ]        # test only
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+    branches: [ "*" ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  actions: read
+  checks: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
@@ -30,59 +33,56 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browsers
+      - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
-      # secrets → .env so dotenv loads them (add more if you have them)
+      # Create .env file from GitHub secret
       - name: Create .env for CI
+        shell: bash
         run: echo "API_BASE_URL=${{ secrets.API_BASE_URL }}" > .env
+
+      # Verify .env exists and contains a value
+      - name: Verify .env created
+        shell: bash
+        run: |
+          echo ".env exists? $(test -f .env && echo yes || echo no)"
+          echo "bytes in .env: $(wc -c < .env)"
+          head -n1 .env | sed 's/=.*/=<masked>/'
 
       - name: Prepare result dirs
         run: mkdir -p results allure-results
 
-      - name: Run Cucumber tests
+      # Run Cucumber tests (pass API_BASE_URL directly too)
+      - name: Run Cucumber Tests
         env:
           API_BASE_URL: ${{ secrets.API_BASE_URL }}
         run: npx cucumber-js --config cucumber.cjs --format progress --backtrace
 
-      - name: Generate Allure HTML
+      - name: Generate Allure Report
         if: always()
         run: npx allure-commandline generate ./allure-results --clean --output ./allure-report
 
-      # Artifacts (handy for download/debug)
-      - name: Upload Allure Results (JSON)
+      - name: Upload Allure Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: allure-results
           path: allure-results
 
-      - name: Upload Allure HTML (artifact)
+      - name: Upload Allure HTML
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
           path: allure-report
 
-      # Prepare static site for Pages (upload on both PR/push; deploy happens only on push)
-      - name: Configure Pages
+      - name: Upload Playwright Artifacts
         if: always()
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact
-        if: always()
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          path: ./allure-report
-
-  deploy:
-    needs: test
-    if: ${{ github.event_name == 'push' }}   # only publish on push
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          name: playwright-artifacts
+          path: |
+            playwright-report
+            test-results
+            traces
+          if-no-files-found: ignore
